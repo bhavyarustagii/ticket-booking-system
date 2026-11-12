@@ -33,7 +33,8 @@ public class AuthService {
             throw new ConflictException("An account with email '" + normalizedEmail + "' already exists");
         }
 
-        Role assignedRole = request.getRole() != null ? request.getRole() : Role.USER;
+        // Public registration is strictly locked to USER role to prevent unauthorized privilege escalation
+        Role assignedRole = Role.USER;
 
         // BCrypt hashing ensures plaintext passwords are never persisted to disk or logs
         User user = User.builder()

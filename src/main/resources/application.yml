@@ -48,6 +48,12 @@ jwt:
   secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
   expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
+app:
+  admin:
+    # Dev-only defaults; production deployments MUST supply ADMIN_EMAIL and ADMIN_PASSWORD via environment variables
+    email: ${ADMIN_EMAIL:admin@ticket.local}
+    password: ${ADMIN_PASSWORD:DevAdminPassword123!}
+
 management:
   endpoints:
     web:

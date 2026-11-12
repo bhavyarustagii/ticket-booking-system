@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticket.system.dto.request.CreateEventRequest;
 import com.ticket.system.dto.request.LoginRequest;
 import com.ticket.system.dto.request.RegisterRequest;
-import com.ticket.system.entity.Role;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,38 +35,92 @@ class AuthControllerIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Test
-    @DisplayName("End-to-End: Register, Login, and verify role-based permissions on secured endpoints")
-    void fullAuthAndAuthorizationFlow() throws Exception {
-        String adminEmail = "admin-" + UUID.randomUUID() + "@example.com";
-        String userEmail = "user-" + UUID.randomUUID() + "@example.com";
-        String password = "StrongPassword123!";
+    @Autowired
+    private com.ticket.system.repository.UserRepository userRepository;
 
-        // 1. Register ADMIN user
-        RegisterRequest adminRegister = RegisterRequest.builder()
-                .name("Admin User")
-                .email(adminEmail)
-                .password(password)
-                .role(Role.ADMIN)
+    @Autowired
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpAdmin() {
+        String adminEmail = "admin@ticket.local";
+        if (userRepository.findByEmail(adminEmail).isEmpty()) {
+            userRepository.save(com.ticket.system.entity.User.builder()
+                    .name("Administrator")
+                    .email(adminEmail)
+                    .passwordHash(passwordEncoder.encode("DevAdminPassword123!"))
+                    .role(com.ticket.system.entity.Role.ADMIN)
+                    .build());
+        }
+    }
+
+    @Test
+    @DisplayName("Security: Registering with 'role':'ADMIN' in payload must be ignored and always assign USER role")
+    void registerWithAdminRoleInPayload_shouldStillCreateUserRole() throws Exception {
+        String email = "privilege-test-" + UUID.randomUUID() + "@example.com";
+        // Explicitly inject "role": "ADMIN" into raw JSON payload to simulate an escalation attempt
+        String maliciousPayload = """
+                {
+                    "name": "Attacker",
+                    "email": "%s",
+                    "password": "Password123!",
+                    "role": "ADMIN"
+                }
+                """.formatted(email);
+
+        String response = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(maliciousPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andReturn().getResponse().getContentAsString();
+
+        String token = objectMapper.readTree(response).get("data").get("token").asText();
+
+        // Verify that this token cannot perform ADMIN actions like creating events
+        CreateEventRequest eventRequest = CreateEventRequest.builder()
+                .name("Illicit Event")
+                .venue("Secret Venue")
+                .startTime(Instant.now().plus(7, ChronoUnit.DAYS))
+                .totalSeats(10)
                 .build();
 
-        String adminRegResponse = mockMvc.perform(post("/api/v1/auth/register")
+        mockMvc.perform(post("/api/v1/events")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(adminRegister)))
-                .andExpect(status().isCreated())
+                        .content(objectMapper.writeValueAsString(eventRequest)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+    }
+
+    @Test
+    @DisplayName("End-to-End: Bootstrapped admin login, user registration, and role-based access control")
+    void fullAuthAndAuthorizationFlow() throws Exception {
+        String userEmail = "regular-user-" + UUID.randomUUID() + "@example.com";
+        String password = "StrongPassword123!";
+
+        // 1. Obtain ADMIN token by logging in as the bootstrapped system administrator
+        LoginRequest adminLogin = LoginRequest.builder()
+                .email("admin@ticket.local")
+                .password("DevAdminPassword123!")
+                .build();
+
+        String adminLoginResponse = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(adminLogin)))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.token").isString())
                 .andExpect(jsonPath("$.data.role").value("ADMIN"))
                 .andReturn().getResponse().getContentAsString();
 
-        String adminToken = objectMapper.readTree(adminRegResponse).get("data").get("token").asText();
+        String adminToken = objectMapper.readTree(adminLoginResponse).get("data").get("token").asText();
         assertThat(adminToken).isNotBlank();
 
-        // 2. Register regular USER
+        // 2. Register regular USER (role field omitted)
         RegisterRequest userRegister = RegisterRequest.builder()
                 .name("Regular User")
                 .email(userEmail)
                 .password(password)
-                .role(Role.USER)
                 .build();
 
         String userRegResponse = mockMvc.perform(post("/api/v1/auth/register")
@@ -134,7 +187,7 @@ class AuthControllerIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401));
 
-        // 8. Accessing POST /api/v1/events with ADMIN token should SUCCEED (201)
+        // 8. Accessing POST /api/v1/events with bootstrapped ADMIN token should SUCCEED (201)
         String createdEventResp = mockMvc.perform(post("/api/v1/events")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -159,4 +212,3 @@ class AuthControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value(401));
     }
 }
-

@@ -41,13 +41,12 @@ class AuthServiceTest {
     private AuthService authService;
 
     @Test
-    @DisplayName("register should hash password, persist user, and return JWT token")
+    @DisplayName("register should hash password, persist user as USER role, and return JWT token")
     void register_success() {
         RegisterRequest request = RegisterRequest.builder()
                 .name("Alice")
                 .email("alice@example.com")
                 .password("secret123")
-                .role(Role.USER)
                 .build();
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.empty());
