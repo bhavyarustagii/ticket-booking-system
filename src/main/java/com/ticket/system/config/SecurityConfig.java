@@ -22,7 +22,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Allow health checks for Docker and orchestrator probes without authentication
                 .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
-                // Require authentication for all application business endpoints
+                // Permit public API endpoints until dedicated authentication module is wired
+                .requestMatchers("/api/**").permitAll()
                 .anyRequest().authenticated()
             );
 
