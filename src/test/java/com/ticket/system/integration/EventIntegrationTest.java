@@ -53,6 +53,7 @@ class EventIntegrationTest {
     private BookingRepository bookingRepository;
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("End-to-end: Create event, verify auto-generated seats in DB, and fetch availability")
     void shouldCreateEventAndFetchAvailability() throws Exception {
         CreateEventRequest request = CreateEventRequest.builder()
@@ -95,6 +96,8 @@ class EventIntegrationTest {
         User user = userRepository.save(User.builder()
                 .name("Alice")
                 .email("alice-" + UUID.randomUUID() + "@example.com")
+                .passwordHash("$2a$10$7EqJtq98hPqEX7fNZaFWoO.8/k0aT9U08p0V21R1lQ177Qp5l.D8i")
+                .role(Role.USER)
                 .build());
 
         Event event = Event.builder()

@@ -9,6 +9,11 @@ import com.ticket.system.dto.response.SeatResponse;
 import com.ticket.system.entity.SeatStatus;
 import com.ticket.system.exception.GlobalExceptionHandler;
 import com.ticket.system.exception.ResourceNotFoundException;
+import com.ticket.system.security.CustomUserDetailsService;
+import com.ticket.system.security.DelegatedAccessDeniedHandler;
+import com.ticket.system.security.DelegatedAuthenticationEntryPoint;
+import com.ticket.system.security.JwtAuthenticationFilter;
+import com.ticket.system.security.JwtService;
 import com.ticket.system.service.EventService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
@@ -33,7 +39,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(EventController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({
+        SecurityConfig.class,
+        JwtAuthenticationFilter.class,
+        DelegatedAuthenticationEntryPoint.class,
+        DelegatedAccessDeniedHandler.class,
+        GlobalExceptionHandler.class
+})
 class EventControllerTest {
 
     @Autowired
@@ -45,9 +57,16 @@ class EventControllerTest {
     @MockBean
     private EventService eventService;
 
+    @MockBean
+    private JwtService jwtService;
+
+    @MockBean
+    private CustomUserDetailsService userDetailsService;
+
     @Test
-    @DisplayName("POST /api/v1/events with valid payload should return 201 Created and EventResponse")
-    void createEvent_validPayload_returnsCreated() throws Exception {
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/v1/events with valid payload as ADMIN should return 201 Created and EventResponse")
+    void createEvent_validPayloadAsAdmin_returnsCreated() throws Exception {
         Instant startTime = Instant.now().plus(5, ChronoUnit.DAYS);
         CreateEventRequest request = CreateEventRequest.builder()
                 .name("Taylor Swift The Eras Tour")
@@ -78,6 +97,44 @@ class EventControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("POST /api/v1/events as non-ADMIN USER should return 403 Forbidden")
+    void createEvent_asUser_returnsForbidden() throws Exception {
+        CreateEventRequest request = CreateEventRequest.builder()
+                .name("Unauthorized Event")
+                .venue("Anywhere")
+                .startTime(Instant.now().plus(2, ChronoUnit.DAYS))
+                .totalSeats(10)
+                .build();
+
+        mockMvc.perform(post("/api/v1/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/events unauthenticated should return 401 Unauthorized")
+    void createEvent_unauthenticated_returnsUnauthorized() throws Exception {
+        CreateEventRequest request = CreateEventRequest.builder()
+                .name("Unauthorized Event")
+                .venue("Anywhere")
+                .startTime(Instant.now().plus(2, ChronoUnit.DAYS))
+                .totalSeats(10)
+                .build();
+
+        mockMvc.perform(post("/api/v1/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/v1/events with invalid payload should return 400 Bad Request with field errors")
     void createEvent_invalidPayload_returnsBadRequest() throws Exception {
         CreateEventRequest invalidRequest = CreateEventRequest.builder()
@@ -99,8 +156,9 @@ class EventControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/events should return 200 OK and paged events")
-    void listEvents_returnsPagedEvents() throws Exception {
+    @WithMockUser(roles = "USER")
+    @DisplayName("GET /api/v1/events as authenticated USER should return 200 OK and paged events")
+    void listEvents_asUser_returnsPagedEvents() throws Exception {
         EventResponse item = EventResponse.builder()
                 .id(1L)
                 .name("Jazz Night")
@@ -119,6 +177,16 @@ class EventControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/v1/events unauthenticated should return 401 Unauthorized")
+    void listEvents_unauthenticated_returnsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/v1/events")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
     @DisplayName("GET /api/v1/events/{id} should return 200 OK with seat availability")
     void getEvent_existingId_returnsDetail() throws Exception {
         EventDetailResponse detail = EventDetailResponse.builder()
@@ -149,6 +217,7 @@ class EventControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "USER")
     @DisplayName("GET /api/v1/events/{id} with missing id should return 404 Not Found")
     void getEvent_missingId_returnsNotFound() throws Exception {
         when(eventService.getEventWithSeats(eq(999L)))
@@ -161,4 +230,3 @@ class EventControllerTest {
                 .andExpect(jsonPath("$.message").value("Event not found with id: 999"));
     }
 }
-
