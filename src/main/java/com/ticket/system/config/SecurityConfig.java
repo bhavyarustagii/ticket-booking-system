@@ -51,7 +51,7 @@ public class SecurityConfig {
                 // Any authenticated USER or ADMIN can browse and inspect events
                 .requestMatchers(HttpMethod.GET, "/api/v1/events", "/api/v1/events/**").hasAnyRole("USER", "ADMIN")
                 // Booking endpoints for authenticated users
-                .requestMatchers("/api/v1/bookings/**").hasAnyRole("USER", "ADMIN")
+                .requestMatchers("/api/v1/bookings", "/api/v1/bookings/**").hasAnyRole("USER", "ADMIN")
                 // All other endpoints require authentication
                 .anyRequest().authenticated()
             )
