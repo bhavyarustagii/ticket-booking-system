@@ -62,8 +62,8 @@ public class BookingConcurrencyIntegrationTest {
     private JwtService jwtService;
 
     @Test
-    @DisplayName("Simultaneous 50 requests on the same seat demonstrate race conditions and DB index collisions")
-    void simultaneousBookingsOnSameSeat_demonstratesConcurrencyIssues() throws Exception {
+    @DisplayName("50 simultaneous requests on one seat: exactly 1 succeeds (201), 49 get 409, 0 get 500 — optimistic locking enforced")
+    void simultaneousBookingsOnSameSeat_optimisticLockingEnforcesExactlyOneSuccess() throws Exception {
         final int numberOfThreads = 50;
 
         // 1. Create target event with exactly 1 available seat
@@ -163,18 +163,15 @@ public class BookingConcurrencyIntegrationTest {
         log.info("======================================================================");
         log.info(" Total Concurrent Requests: {}", numberOfThreads);
         log.info(" HTTP 201 Created (Succeeded): {}", successCount.get());
-        log.info(" HTTP 409 Conflict (Rejected by DB constraint / read-check): {}", conflictCount.get());
+        log.info(" HTTP 409 Conflict (Rejected by optimistic lock / DB constraint): {}", conflictCount.get());
         log.info(" Other Errors (e.g. 500s or timeouts): {}", otherErrors.get());
         log.info(" Final Seat Status in DB: {}", finalSeat.getStatus());
         log.info(" Number of CONFIRMED Bookings in DB: {}", confirmedBookings.size());
         log.info("======================================================================");
 
-        // Assertions:
-        // Due to partial unique index (uq_seat_confirmed_booking), at most 1 confirmed booking can persist in DB
+        // Exactly 1 request wins the optimistic lock race; all others get 409 (no 500s)
         assertThat(confirmedBookings.size()).isEqualTo(1);
         assertThat(finalSeat.getStatus()).isEqualTo(SeatStatus.BOOKED);
-
-        // Exactly 1 request successfully committed, and all 49 other requests were rejected (HTTP 409)
         assertThat(successCount.get()).isEqualTo(1);
         assertThat(conflictCount.get()).isEqualTo(49);
         assertThat(otherErrors.get()).isZero();
